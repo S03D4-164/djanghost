@@ -1,0 +1,131 @@
+diff --git a/ghost/bindings.py b/ghost/bindings.py
+index 48ae0c7..ab4c39a 100644
+--- a/ghost/bindings.py
++++ b/ghost/bindings.py
+@@ -15,12 +15,12 @@ binding = None
+ if 'GHOST_QT_PROVIDER' in os.environ:
+     bindings = [os.environ['GHOST_QT_PROVIDER']]
+ else:
+-    bindings = ["PySide", "PyQt4"]
++    bindings = ["PySide", "PyQt4", "PyQt5"]
+ 
+ for name in bindings:
+     try:
+         binding = __import__(name)
+-        if name == 'PyQt4':
++        if name.startswith('PyQt'):
+             import sip
+             sip.setapi('QVariant', 2)
+ 
+@@ -58,14 +58,26 @@ QtCriticalMsg = QtCore.QtCriticalMsg
+ QtDebugMsg = QtCore.QtDebugMsg
+ QtFatalMsg = QtCore.QtFatalMsg
+ QtWarningMsg = QtCore.QtWarningMsg
+-qInstallMsgHandler = QtCore.qInstallMsgHandler
++if name == "PyQt5":
++    qInstallMsgHandler = QtCore.qInstallMessageHandler
++else:
++    qInstallMsgHandler = QtCore.qInstallMsgHandler
+ 
+ QtGui = _import("QtGui")
+-QApplication = QtGui.QApplication
+-QImage = QtGui.QImage
+-QPainter = QtGui.QPainter
+-QPrinter = QtGui.QPrinter
+-QRegion = QtGui.QRegion
++if name == "PyQt5":
++    QtWidgets = _import("QtWidgets")
++    QtPrintSupport = _import("QtPrintSupport")
++    QApplication = QtWidgets.QApplication
++    QImage = QtGui.QImage
++    QPainter = QtGui.QPainter
++    QPrinter = QtPrintSupport.QPrinter
++    QRegion = QtGui.QRegion
++else:
++    QApplication = QtGui.QApplication
++    QImage = QtGui.QImage
++    QPainter = QtGui.QPainter
++    QPrinter = QtGui.QPrinter
++    QRegion = QtGui.QRegion
+ 
+ QtNetwork = _import("QtNetwork")
+ QNetworkRequest = QtNetwork.QNetworkRequest
+@@ -77,3 +89,10 @@ QSslConfiguration = QtNetwork.QSslConfiguration
+ QSsl = QtNetwork.QSsl
+ 
+ QtWebKit = _import('QtWebKit')
++if name == "PyQt5":
++    QtWebKitWidgets = _import("QtWebKitWidgets")
++    QWebPage = QtWebKitWidgets.QWebPage
++    QWebView = QtWebKitWidgets.QWebView
++else:
++    QWebPage = QtWebKit.QWebPage
++    QWebView = QtWebKit.QWebView
+diff --git a/ghost/ghost.py b/ghost/ghost.py
+index 53bfc8c..43a159f 100755
+--- a/ghost/ghost.py
++++ b/ghost/ghost.py
+@@ -37,6 +37,8 @@ from .bindings import (
+     QUrl,
+     binding,
+     qInstallMsgHandler,
++    QWebPage,
++    QWebView,
+ )
+ 
+ try:
+@@ -77,7 +79,8 @@ class QTMessageProxy(object):
+     def __init__(self, logger):
+         self.logger = logger
+ 
+-    def __call__(self, msgType, msg):
++    def __call__(self, *args):
++        msgType, msg = args[0], args[-1]
+         levels = {
+             QtDebugMsg: logging.DEBUG,
+             QtWarningMsg: logging.WARNING,
+@@ -87,7 +90,7 @@ class QTMessageProxy(object):
+         self.logger.log(levels[msgType], msg)
+ 
+ 
+-class GhostWebPage(QtWebKit.QWebPage):
++class GhostWebPage(QWebPage):
+     """Overrides QtWebKit.QWebPage in order to intercept some graphical
+     behaviours like alert(), confirm().
+     Also intercepts client side console.log().
+@@ -250,7 +253,7 @@ def reply_ready_peek(reply):
+     :param reply: QNetworkReply object.
+     """
+     if not hasattr(reply, 'data'):
+-        reply.data = ''
++        reply.data = QByteArray()
+ 
+     reply.data += reply.peek(reply.bytesAvailable())
+ 
+@@ -368,7 +371,7 @@ class Ghost(object):
+         defaults=None,
+     ):
+         if not binding:
+-            raise RuntimeError("Ghost.py requires PySide or PyQt4")
++            raise Exception("Ghost.py requires PySide, PyQt4 or PyQt5") 
+ 
+         self.logger = logger.getChild('application')
+ 
+@@ -543,7 +546,7 @@ class Session(object):
+ 
+         self.main_frame = self.page.mainFrame()
+ 
+-        class GhostQWebView(QtWebKit.QWebView):
++        class GhostQWebView(QWebView):
+             def sizeHint(self):
+                 return QSize(*viewport_size)
+ 
+@@ -716,7 +719,7 @@ class Session(object):
+             printer.setFullPage(True)
+         printer.setOutputFileName(path)
+         if self.webview is None:
+-            self.webview = QtWebKit.QWebView()
++            self.webview = QWebView()
+             self.webview.setPage(self.page)
+         self.webview.setZoomFactor(zoom_factor)
+         self.webview.print_(printer)
